@@ -33,6 +33,8 @@ export type DrawOptions = {
   colorEmpty: string;
   colorDotBorder: string;
   colorSnake: string;
+  /** Per-segment OKLCH snake fills (0 = head → dark tail). */
+  snakeColors?: string[];
   sizeCell: number;
   sizeDot: number;
   sizeDotBorderRadius: number;
