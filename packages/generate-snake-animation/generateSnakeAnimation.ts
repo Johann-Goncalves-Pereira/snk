@@ -6,6 +6,7 @@ import { getBestRoute } from "@snk/solver/getBestRoute";
 import { getPathToPose } from "@snk/solver/getPathToPose";
 import type { DrawOptions } from "@snk/svg-creator";
 import { snake4 } from "@snk/types/__fixtures__/snake";
+import { getSnakeLength } from "@snk/types/snake";
 import { getWakatimeUserContribution } from "@snk/wakatime-user-contribution";
 import { cellsToGrid } from "./cellsToGrid";
 import {
@@ -16,8 +17,10 @@ import {
 import {
   buildIntensityColorDots,
   buildIntensityLegendColors,
+  buildSnakeGradientColors,
   colorForCell,
-  dominantHueFromCells,
+  dominantHueFromLabeled,
+  EMPTY_LIGHT,
   SOURCE_COLORS,
   SOURCE_LABELS,
   SOURCE_LEGEND_ORDER,
@@ -33,8 +36,10 @@ export {
   buildSourcesColorDots,
   buildIntensityColorDots,
   buildIntensityLegendColors,
+  buildSnakeGradientColors,
   colorForCell,
   dominantHueFromCells,
+  dominantHueFromLabeled,
   strokeForCell,
   INTENSITY_LEGEND_COLORS,
   SOURCE_COLORS,
@@ -143,13 +148,11 @@ const withCellStyles = (
 const applyMultiSourceDrawOptions = (
   drawOptions: DrawOptions,
   sources: Source[],
-  cells: ContributionCell[],
+  labeled: { bit: number; cells: { level: number }[] }[],
 ): DrawOptions => {
   const legend = buildSourcesLegend(sources);
   const empty = drawOptions.colorEmpty;
-  const hue = dominantHueFromCells(
-    cells.map((c) => ({ sources: c.sources ?? 0, level: c.level ?? 0 })),
-  );
+  const hue = dominantHueFromLabeled(labeled);
   const colorDots = buildIntensityColorDots(
     empty,
     hue,
@@ -159,10 +162,21 @@ const applyMultiSourceDrawOptions = (
     drawOptions.intensityLegendColors ??
     buildIntensityLegendColors(hue, empty);
 
+  const snakeTheme: "light" | "dark" =
+    empty === EMPTY_LIGHT || (empty.startsWith("#") && empty !== "#0c1116")
+      ? "light"
+      : "dark";
+
+  const snakeColors =
+    drawOptions.snakeColors ??
+    buildSnakeGradientColors(getSnakeLength(snake4), hue, snakeTheme);
+
   return {
     ...drawOptions,
     colorDots,
     colorDotBorder: drawOptions.colorDotBorder || strokeForCell(0, 0),
+    colorSnake: snakeColors[0] ?? drawOptions.colorSnake,
+    snakeColors,
     sourcesLegend: drawOptions.sourcesLegend ?? legend,
     intensityLegendColors,
     calendarChrome: drawOptions.calendarChrome ?? true,
@@ -191,8 +205,9 @@ export const generateSnakeAnimation = async (
   const fetched = await Promise.all(sourceList.map(getUserContribution));
 
   let cells: ContributionCell[];
+  let labeled: { bit: number; cells: ContributionCell[] }[] | null = null;
   if (multi) {
-    const labeled = sourceList.map((s, i) => {
+    labeled = sourceList.map((s, i) => {
       const bit =
         PLATFORM_BITS[s.platform as keyof typeof PLATFORM_BITS] ??
         (() => {
@@ -218,9 +233,10 @@ export const generateSnakeAnimation = async (
     outputs.map(async (out, i) => {
       if (!out) return;
       const { format, animationOptions } = out;
-      const drawOptions = multi
-        ? applyMultiSourceDrawOptions(out.drawOptions, sourceList, cells)
-        : out.drawOptions;
+      const drawOptions =
+        multi && labeled
+          ? applyMultiSourceDrawOptions(out.drawOptions, sourceList, labeled)
+          : out.drawOptions;
 
       const emptyStroke =
         drawOptions.colorDotBorder || strokeForCell(0, 0);
