@@ -165,9 +165,48 @@ export const hueForSources = (sources: number): number => {
   return hues.length ? circularMeanHue(hues) : GH_LADDER[0]!.h;
 };
 
+const hueFromSourceWeights = (
+  weights: Record<SourceColorKey, number>,
+): number => {
+  const keys = (Object.keys(weights) as SourceColorKey[]).filter(
+    (k) => weights[k] > 0,
+  );
+  if (keys.length === 0) return GH_ACTIVE.h;
+
+  return circularMeanHue(
+    keys.map((k) => SOURCE_HUES[k]),
+    keys.map((k) => weights[k]),
+  );
+};
+
 /**
- * Intensity-weighted circular mean of source hues across the year.
- * Each active bit on a cell contributes `level` weight toward that brand hue.
+ * Intensity-weighted circular mean from per-source calendars (before merge).
+ * Each source contributes its own daily `level` — avoids inflating a weak
+ * source when another source dominates the same day after max-merge.
+ */
+export const dominantHueFromLabeled = (
+  labeled: { bit: number; cells: { level: number }[] }[],
+): number => {
+  const weights: Record<SourceColorKey, number> = {
+    github: 0,
+    gitlab: 0,
+    wakatime: 0,
+  };
+
+  for (const { bit, cells } of labeled) {
+    const key = SOURCE_BIT_TO_KEY[bit];
+    if (!key) continue;
+    for (const c of cells) {
+      if (c.level > 0) weights[key] += c.level;
+    }
+  }
+
+  return hueFromSourceWeights(weights);
+};
+
+/**
+ * Intensity-weighted circular mean over already-merged cells.
+ * Prefer `dominantHueFromLabeled` for multi-source years (shared-day bias).
  */
 export const dominantHueFromCells = (
   cells: { sources: number; level: number }[],
@@ -185,15 +224,38 @@ export const dominantHueFromCells = (
     }
   }
 
-  const keys = (Object.keys(weights) as SourceColorKey[]).filter(
-    (k) => weights[k] > 0,
-  );
-  if (keys.length === 0) return GH_ACTIVE.h;
+  return hueFromSourceWeights(weights);
+};
 
-  return circularMeanHue(
-    keys.map((k) => SOURCE_HUES[k]),
-    keys.map((k) => weights[k]),
-  );
+/**
+ * Per-segment snake fills: light head → dark tail at the dominant hue.
+ * Theme adjusts L endpoints for light vs dark backgrounds.
+ */
+export const buildSnakeGradientColors = (
+  length: number,
+  dominantHue: number,
+  theme: "light" | "dark" = "dark",
+): string[] => {
+  const n = Math.max(1, Math.round(length));
+  const head =
+    theme === "dark"
+      ? { l: 0.78, c: 0.14, h: dominantHue }
+      : { l: 0.62, c: 0.16, h: dominantHue };
+  const tail =
+    theme === "dark"
+      ? { l: 0.38, c: 0.18, h: dominantHue }
+      : { l: 0.32, c: 0.14, h: dominantHue };
+
+  if (n === 1) return [formatOklch(head)];
+
+  return Array.from({ length: n }, (_, i) => {
+    const t = i / (n - 1);
+    return formatOklch({
+      l: head.l + (tail.l - head.l) * t,
+      c: head.c + (tail.c - head.c) * t,
+      h: dominantHue,
+    });
+  });
 };
 
 /** Ladder fill at an explicit hue (level 0 keeps empty step as-is). */

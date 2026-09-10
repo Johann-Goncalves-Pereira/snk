@@ -2,9 +2,11 @@ import { describe, it, expect } from "bun:test";
 import {
   buildIntensityColorDots,
   buildIntensityLegendColors,
+  buildSnakeGradientColors,
   colorAtHue,
   colorForCell,
   dominantHueFromCells,
+  dominantHueFromLabeled,
   EMPTY_DARK,
   EMPTY_LIGHT,
   formatOklch,
@@ -117,6 +119,70 @@ describe("dominantHueFromCells", () => {
     const hi = Math.max(SOURCE_HUES.github, SOURCE_HUES.gitlab);
     expect(hue).toBeGreaterThan(lo);
     expect(hue).toBeLessThan(hi);
+  });
+});
+
+describe("dominantHueFromLabeled", () => {
+  const angularDist = (a: number, b: number) => {
+    const d = Math.abs(a - b) % 360;
+    return Math.min(d, 360 - d);
+  };
+
+  it("uses each source's own level on shared days (no GH inflation)", () => {
+    // Same calendar day: GH L1 + GL L4. Merged cells would wrongly add 4 to both.
+    const labeled = [
+      { bit: 1, cells: [{ level: 1 }] },
+      { bit: 2, cells: [{ level: 4 }] },
+    ];
+    const hue = dominantHueFromLabeled(labeled);
+    expect(angularDist(hue, SOURCE_HUES.gitlab)).toBeLessThan(
+      angularDist(hue, SOURCE_HUES.github),
+    );
+
+    // Contrast: merged-style cell would pull closer to midpoint / GH
+    const inflated = dominantHueFromCells([{ sources: 1 | 2, level: 4 }]);
+    expect(angularDist(hue, SOURCE_HUES.gitlab)).toBeLessThan(
+      angularDist(inflated, SOURCE_HUES.gitlab),
+    );
+  });
+
+  it("pushes toward GitLab when GL-heavy across labeled calendars", () => {
+    const hue = dominantHueFromLabeled([
+      {
+        bit: 1,
+        cells: [{ level: 1 }, { level: 0 }],
+      },
+      {
+        bit: 2,
+        cells: [{ level: 4 }, { level: 4 }, { level: 3 }],
+      },
+    ]);
+    expect(angularDist(hue, SOURCE_HUES.gitlab)).toBeLessThan(
+      angularDist(hue, SOURCE_HUES.github),
+    );
+  });
+
+  it("falls back to GitHub hue when labeled sources are empty", () => {
+    expect(dominantHueFromLabeled([])).toBeCloseTo(GH_ACTIVE.h, 5);
+    expect(
+      dominantHueFromLabeled([
+        { bit: 1, cells: [{ level: 0 }] },
+        { bit: 2, cells: [{ level: 0 }] },
+      ]),
+    ).toBeCloseTo(GH_ACTIVE.h, 5);
+  });
+});
+
+describe("buildSnakeGradientColors", () => {
+  it("builds light-head dark-tail oklch segments at dominant hue", () => {
+    const hue = SOURCE_HUES.gitlab;
+    const colors = buildSnakeGradientColors(4, hue, "dark");
+    expect(colors).toHaveLength(4);
+    for (const c of colors) {
+      expect(c).toMatch(/^oklch\(/);
+      expect(parseOklch(c).h).toBeCloseTo(hue, 1);
+    }
+    expect(parseOklch(colors[0]!).l).toBeGreaterThan(parseOklch(colors[3]!).l);
   });
 });
 

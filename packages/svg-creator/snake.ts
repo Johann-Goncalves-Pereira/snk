@@ -8,13 +8,15 @@ export type Options = {
   colorSnake: string;
   sizeCell: number;
   sizeDot: number;
+  /** Per-segment OKLCH fills (index 0 = head). Falls back to colorSnake / --cs. */
+  snakeColors?: string[];
 };
 
 const lerp = (k: number, a: number, b: number) => (1 - k) * a + k * b;
 
 export const createSnake = (
   chain: Snake[],
-  { sizeCell, sizeDot }: Options,
+  { sizeCell, sizeDot, snakeColors }: Options,
   duration: number,
 ) => {
   const snakeN = chain[0] ? getSnakeLength(chain[0]) : 0;
@@ -58,6 +60,13 @@ export const createSnake = (
       fill: var(--cs);
       animation: none linear ${duration}ms infinite
     }`,
+
+    ...(snakeColors?.length
+      ? snakeParts.map((_, i) => {
+          const fill = snakeColors[i] ?? snakeColors[snakeColors.length - 1]!;
+          return `.s.s${i}{ fill: ${fill} }`;
+        })
+      : []),
 
     ...snakeParts.map((positions, i) => {
       const id = `s${i}`;
